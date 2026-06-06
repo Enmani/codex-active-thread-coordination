@@ -1,0 +1,38 @@
+{
+  "name": "codex-active-thread-coordination",
+  "version": "0.1.0",
+  "description": "Local active-thread coordination helpers for OpenAI Codex power users.",
+  "license": "MIT",
+  "type": "commonjs",
+  "bin": {
+    "codex-active-thread-coordination": "bin/codex-active-thread-coordination.cjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.cjs",
+    "smoke": "node bin/codex-active-thread-coordination.cjs --help"
+  },
+  "keywords": [
+    "codex",
+    "openai-codex",
+    "agent",
+    "coordination",
+    "hooks"
+  ],
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Enmani/codex-active-thread-coordination.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Enmani/codex-active-thread-coordination/issues"
+  },
+  "homepage": "https://github.com/Enmani/codex-active-thread-coordination#readme"
+}
