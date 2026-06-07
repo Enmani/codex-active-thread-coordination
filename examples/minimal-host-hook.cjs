@@ -9,6 +9,8 @@ function beforeCodeWrite({ projectRoot, sessionId, targetFilePaths }) {
     currentSessionId: sessionId,
     targetFilePaths,
   });
+  // Inject this before a write so the agent can spot conflicts, handoffs,
+  // dependencies, and complementary peer work.
   return summary.output;
 }
 

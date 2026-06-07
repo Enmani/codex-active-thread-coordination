@@ -7,8 +7,8 @@
  *   official thread metadata into the local coordination row shape.
  *
  * Does not own:
- * - Local collision policy, rollout path scanning, sidecar summaries, port leasing,
- *   or deciding whether a coordination warning should be shown.
+ * - Local collaboration policy, rollout path scanning, sidecar summaries, port leasing,
+ *   or deciding whether a collaboration hint should be shown.
  *
  * Split when:
  * - The app-server protocol adapter expands beyond read-only thread listing into

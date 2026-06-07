@@ -234,7 +234,7 @@ test('active-thread coordination prefers Codex app-server thread metadata when a
     assert.equal(summary.available, true);
     assert.equal(summary.threads.length, 1);
     assert.equal(summary.threads[0].id, 'official-peer-thread');
-    assert.match(summary.output, /\[Active Thread Coordination\]/);
+    assert.match(summary.output, /\[Active Thread Collaboration\]/);
     assert.match(summary.output, /Official app-server peer/);
     assert.match(summary.output, /apps\/web\/src\/official-peer\.ts/);
     assert.doesNotMatch(summary.output, /Current thread should be filtered/);

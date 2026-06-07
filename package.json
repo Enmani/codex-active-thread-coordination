@@ -1,7 +1,7 @@
 {
   "name": "codex-active-thread-coordination",
   "version": "0.1.0",
-  "description": "Local active-thread coordination helpers for OpenAI Codex power users.",
+  "description": "Local collaboration and orchestration helpers for parallel OpenAI Codex threads.",
   "license": "MIT",
   "type": "commonjs",
   "bin": {
@@ -22,6 +22,8 @@
     "openai-codex",
     "agent",
     "coordination",
+    "collaboration",
+    "orchestration",
     "hooks"
   ],
   "engines": {

@@ -36,6 +36,7 @@ const MAX_SUMMARY_THREADS = 3;
 const MAX_SUMMARY_BODY_CHARS = 200;
 const MAX_HIGHLIGHTED_DELTA_PATHS = 1;
 const MAX_SUPPLEMENTAL_PATHS = 2;
+const MAX_INTENT_ITEMS = 5;
 const MAX_PORT_LEASES = 10;
 const TEST_PORT_START = 4601;
 const TEST_PORT_END = TEST_PORT_START + MAX_PORT_LEASES - 1;
@@ -80,6 +81,13 @@ function buildCoordinationSummary({
     .map((record) => ({
       ...record,
       relevanceScore: scoreThreadRelevance({
+        targetFilePaths: normalizedTargets,
+        record,
+      }),
+    }))
+    .map((record) => ({
+      ...record,
+      relationship: classifyThreadRelationship({
         targetFilePaths: normalizedTargets,
         record,
       }),
@@ -221,6 +229,14 @@ function recordCodeWriteActivity({
       latestActivity: summaryDraft.latestActivity,
       normalizedPaths,
       toolName,
+    }),
+    intentCard: buildIntentCard({
+      title: summaryDraft.title,
+      stableSummary: summaryDraft.stableSummary,
+      latestActivity: summaryDraft.latestActivity,
+      ownedModules: summaryDraft.ownedModules,
+      promptAnchor: summaryDraft.promptAnchor,
+      recentTouchedPaths: mergedRecentPaths,
     }),
     ownedModules: summaryDraft.ownedModules,
     recentTouchedPaths: mergedRecentPaths.slice(0, MAX_PATHS_PER_THREAD),
@@ -619,6 +635,7 @@ function buildThreadCoordinationRecord({
       summary: null,
       stableSummary: '',
       latestActivity: '',
+      intentCard: null,
       ownedModules: [],
       recentPaths: [],
       testingPort: null,
@@ -642,6 +659,14 @@ function buildThreadCoordinationRecord({
     summary: summary || null,
     stableSummary: normalizeText(summary?.stableSummary),
     latestActivity: normalizeText(summary?.latestActivity),
+    intentCard: normalizeIntentCard(summary?.intentCard, {
+      title: summary?.title,
+      stableSummary: summary?.stableSummary,
+      latestActivity: summary?.latestActivity,
+      ownedModules: Array.isArray(summary?.ownedModules) ? summary.ownedModules : inferOwnedModules(recentPaths),
+      recentTouchedPaths: recentPaths,
+      promptAnchor: summary?.promptAnchor,
+    }),
     ownedModules: Array.isArray(summary?.ownedModules) ? summary.ownedModules : inferOwnedModules(recentPaths),
     recentPaths,
     testingPort: summary?.testingPort ?? lookupTestingPort({
@@ -665,8 +690,8 @@ function renderCoordinationSummary({
   threads = [],
   targetFilePaths = [],
 } = {}) {
-  const lines = ['[Active Thread Coordination]'];
-  lines.push('Read active local peer-thread summaries before writing code:');
+  const lines = ['[Active Thread Collaboration]'];
+  lines.push('Use active peer-thread intent cards to find conflicts, handoffs, dependencies, and complementary work:');
   if (targetFilePaths.length > 0) {
     lines.push(`Current target: ${targetFilePaths.slice(0, 3).join(', ')}`);
   }
@@ -677,7 +702,25 @@ function renderCoordinationSummary({
         ? ` | modules ${thread.ownedModules.join(' / ')}`
         : '';
     lines.push(`- ${thread.title} (${thread.id})${modulesLabel}${portLabel}`);
-    lines.push(`  Summary: ${thread.stableSummary || thread.summaryBody || 'This thread wrote code; inspect recent paths first.'}`);
+    if (thread.relationship?.type) {
+      lines.push(`  Relationship: ${thread.relationship.type} - ${thread.relationship.reason}`);
+      if (thread.relationship.action) {
+        lines.push(`  Suggested move: ${thread.relationship.action}`);
+      }
+    }
+    if (thread.intentCard?.objective) {
+      lines.push(`  Objective: ${thread.intentCard.objective}`);
+    }
+    lines.push(`  Summary: ${thread.stableSummary || thread.summaryBody || 'This thread wrote code; use its recent paths and intent before choosing your slice.'}`);
+    if (Array.isArray(thread.intentCard?.decisions) && thread.intentCard.decisions.length > 0) {
+      lines.push(`  Decisions: ${thread.intentCard.decisions.slice(0, 2).join(' | ')}`);
+    }
+    if (Array.isArray(thread.intentCard?.offers) && thread.intentCard.offers.length > 0) {
+      lines.push(`  Offers: ${thread.intentCard.offers.slice(0, 2).join(' | ')}`);
+    }
+    if (Array.isArray(thread.intentCard?.needs) && thread.intentCard.needs.length > 0) {
+      lines.push(`  Needs: ${thread.intentCard.needs.slice(0, 2).join(' | ')}`);
+    }
     if (thread.readDelta?.detail) {
       lines.push(`  Update: ${thread.readDelta.detail}`);
     }
@@ -704,6 +747,8 @@ function buildCoordinationSummarySignature({
       summaryBody: normalizeText(thread.summaryBody),
       recentPaths: uniqueValues(thread.recentPaths || []),
       ownedModules: uniqueValues(thread.ownedModules || []),
+      relationship: thread.relationship?.type || '',
+      intentObjective: normalizeText(thread.intentCard?.objective),
       testingPort: thread.testingPort ?? null,
       sourceUpdatedAtMs: Number(thread.sourceUpdatedAtMs || 0),
     })),
@@ -1075,6 +1120,182 @@ function composeSummaryBody({
   return clampText(`${stable} ${latest}`, MAX_SUMMARY_BODY_CHARS);
 }
 
+function buildIntentCard({
+  title = '',
+  stableSummary = '',
+  latestActivity = '',
+  ownedModules = [],
+  promptAnchor = '',
+  recentTouchedPaths = [],
+} = {}) {
+  const normalizedModules = uniqueValues((ownedModules || []).map(normalizeOwnedModulePath).filter(Boolean));
+  const normalizedPaths = uniqueValues((recentTouchedPaths || []).map(normalizeText).filter(Boolean));
+  const objective =
+    inferObjective({
+      title,
+      stableSummary,
+      promptAnchor,
+      ownedModules: normalizedModules,
+    });
+  return normalizeIntentCard({
+    objective,
+    plan: inferPlanItems({
+      promptAnchor,
+      recentTouchedPaths: normalizedPaths,
+    }),
+    ownedScope: normalizedModules.length > 0 ? normalizedModules : inferOwnedModules(normalizedPaths),
+    decisions: inferDecisionItems({
+      stableSummary,
+      latestActivity,
+      ownedModules: normalizedModules,
+    }),
+    needs: inferNeedItems({
+      ownedModules: normalizedModules,
+      recentTouchedPaths: normalizedPaths,
+    }),
+    offers: inferOfferItems({
+      ownedModules: normalizedModules,
+      recentTouchedPaths: normalizedPaths,
+    }),
+    status: 'in_progress',
+  }, {
+    title,
+    stableSummary,
+    latestActivity,
+    ownedModules: normalizedModules,
+    recentTouchedPaths: normalizedPaths,
+    promptAnchor,
+  });
+}
+
+function normalizeIntentCard(intentCard = null, fallback = {}) {
+  const card = intentCard && typeof intentCard === 'object' && !Array.isArray(intentCard)
+    ? intentCard
+    : {};
+  const ownedScope = uniqueValues([
+    ...normalizeTextArray(card.ownedScope),
+    ...normalizeTextArray(fallback.ownedModules),
+  ])
+    .map(normalizeOwnedModulePath)
+    .filter(Boolean)
+    .slice(0, MAX_INTENT_ITEMS);
+  const recentTouchedPaths = uniqueValues(normalizeTextArray(fallback.recentTouchedPaths));
+  const objective =
+    normalizeText(card.objective) ||
+    inferObjective({
+      title: fallback.title,
+      stableSummary: fallback.stableSummary,
+      promptAnchor: fallback.promptAnchor,
+      ownedModules: ownedScope,
+    });
+  return {
+    objective: clampText(objective, MAX_SUMMARY_BODY_CHARS),
+    plan: normalizeTextArray(card.plan).slice(0, MAX_INTENT_ITEMS),
+    ownedScope,
+    decisions: normalizeTextArray(card.decisions).slice(0, MAX_INTENT_ITEMS),
+    needs: normalizeTextArray(card.needs).slice(0, MAX_INTENT_ITEMS),
+    offers: normalizeTextArray(card.offers).slice(0, MAX_INTENT_ITEMS),
+    status: normalizeIntentStatus(card.status),
+    updatedAt: normalizeText(card.updatedAt || fallback.updatedAt),
+    recentTouchedPaths,
+  };
+}
+
+function inferObjective({
+  title = '',
+  stableSummary = '',
+  promptAnchor = '',
+  ownedModules = [],
+} = {}) {
+  const anchor =
+    normalizeText(promptAnchor) ||
+    normalizeText(stableSummary) ||
+    normalizeText(title);
+  if (anchor) {
+    return clampText(anchor, MAX_SUMMARY_BODY_CHARS);
+  }
+  const moduleText = ownedModules.length > 0 ? ownedModules.join(' / ') : 'the current code area';
+  return `Move ${moduleText} forward without surprising peer threads.`;
+}
+
+function inferPlanItems({
+  promptAnchor = '',
+  recentTouchedPaths = [],
+} = {}) {
+  const plan = [];
+  const intent = inferIntentText(promptAnchor);
+  if (intent) {
+    plan.push(`Continue ${intent}`);
+  }
+  if (recentTouchedPaths.length > 0) {
+    plan.push(`Keep recent changes coherent around ${recentTouchedPaths.slice(0, 2).join(', ')}`);
+  }
+  return plan;
+}
+
+function inferDecisionItems({
+  stableSummary = '',
+  latestActivity = '',
+  ownedModules = [],
+} = {}) {
+  const decisions = [];
+  const stable = normalizeText(stableSummary);
+  if (stable) {
+    decisions.push(stable);
+  }
+  const latest = normalizeText(latestActivity);
+  if (latest && latest !== stable) {
+    decisions.push(latest);
+  }
+  if (ownedModules.length > 0) {
+    decisions.push(`Current ownership focus: ${ownedModules.join(' / ')}`);
+  }
+  return decisions;
+}
+
+function inferNeedItems({
+  ownedModules = [],
+  recentTouchedPaths = [],
+} = {}) {
+  const needs = [];
+  if (ownedModules.length > 0) {
+    needs.push(`Coordinate before reshaping shared owners in ${ownedModules.join(' / ')}`);
+  }
+  if (recentTouchedPaths.length > 0) {
+    needs.push(`Check latest peer edits before changing ${recentTouchedPaths.slice(0, 2).join(', ')}`);
+  }
+  return needs;
+}
+
+function inferOfferItems({
+  ownedModules = [],
+  recentTouchedPaths = [],
+} = {}) {
+  const offers = [];
+  if (ownedModules.length > 0) {
+    offers.push(`Reusable context for ${ownedModules.join(' / ')}`);
+  }
+  if (recentTouchedPaths.length > 0) {
+    offers.push(`Recent implementation clues in ${recentTouchedPaths.slice(0, 2).join(', ')}`);
+  }
+  return offers;
+}
+
+function normalizeIntentStatus(value) {
+  const normalized = normalizeText(value).toLowerCase();
+  if (['planned', 'in_progress', 'blocked', 'ready_for_review', 'done', 'handoff'].includes(normalized)) {
+    return normalized;
+  }
+  return 'in_progress';
+}
+
+function normalizeTextArray(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return uniqueValues(value.map(normalizeText).filter(Boolean));
+}
+
 function buildFallbackSummary({
   title = '',
   recentPaths = [],
@@ -1177,6 +1398,15 @@ function sanitizeThreadSummary({
           toolName: '',
         })
       : clampText(normalizeText(summary.latestActivity), MAX_SUMMARY_BODY_CHARS),
+    intentCard: normalizeIntentCard(summary.intentCard, {
+      title: summary.title,
+      stableSummary: summary.stableSummary,
+      latestActivity: summary.latestActivity,
+      ownedModules,
+      recentTouchedPaths,
+      promptAnchor,
+      updatedAt: summary.updatedAt,
+    }),
     ownedModules,
     recentTouchedPaths,
     testingPort: normalizeTestingPort(summary.testingPort),
@@ -1280,6 +1510,112 @@ function scoreThreadRelevance({
     score += 1;
   }
   return score;
+}
+
+function classifyThreadRelationship({
+  targetFilePaths = [],
+  record = {},
+} = {}) {
+  const directOverlap = findDirectOverlap({
+    targetFilePaths,
+    recordPaths: record.recentPaths || [],
+  });
+  const sharedModules = findSharedModules({
+    targetFilePaths,
+    ownedModules: [
+      ...(record.ownedModules || []),
+      ...(record.intentCard?.ownedScope || []),
+    ],
+  });
+  const status = normalizeIntentStatus(record.intentCard?.status);
+  const hasNeeds = Array.isArray(record.intentCard?.needs) && record.intentCard.needs.length > 0;
+  const hasOffers = Array.isArray(record.intentCard?.offers) && record.intentCard.offers.length > 0;
+
+  if (directOverlap.length > 0) {
+    return {
+      type: 'conflict-risk',
+      reason: `Both threads are near ${directOverlap.slice(0, 2).join(', ')}.`,
+      action: 'Read the peer intent card and current file reality before editing; split ownership or hand off explicitly.',
+      overlapPaths: directOverlap,
+      sharedModules,
+    };
+  }
+
+  if (status === 'ready_for_review') {
+    return {
+      type: 'review-opportunity',
+      reason: 'The peer thread marked its work ready for review.',
+      action: 'Use your related context to review, test, or validate the peer result before adding parallel code.',
+      overlapPaths: [],
+      sharedModules,
+    };
+  }
+
+  if (status === 'handoff') {
+    return {
+      type: 'handoff-opportunity',
+      reason: 'The peer thread is offering a handoff.',
+      action: 'Check its decisions and recent paths, then continue the complementary slice if it matches your task.',
+      overlapPaths: [],
+      sharedModules,
+    };
+  }
+
+  if (sharedModules.length > 0 && hasOffers) {
+    return {
+      type: 'complementary',
+      reason: `Shared module focus: ${sharedModules.slice(0, 2).join(' / ')}.`,
+      action: 'Look for reusable decisions/helpers from the peer and build the adjacent slice instead of duplicating work.',
+      overlapPaths: [],
+      sharedModules,
+    };
+  }
+
+  if (sharedModules.length > 0 && hasNeeds) {
+    return {
+      type: 'dependency',
+      reason: `The peer has coordination needs in ${sharedModules.slice(0, 2).join(' / ')}.`,
+      action: 'Treat its needs as constraints; unblock or adapt to them before changing shared owners.',
+      overlapPaths: [],
+      sharedModules,
+    };
+  }
+
+  if (sharedModules.length > 0) {
+    return {
+      type: 'same-area-awareness',
+      reason: `Nearby work exists in ${sharedModules.slice(0, 2).join(' / ')}.`,
+      action: 'Use the peer summary as context and keep your write slice explicit.',
+      overlapPaths: [],
+      sharedModules,
+    };
+  }
+
+  return {
+    type: 'background-context',
+    reason: 'The peer thread is active but only loosely related to this target.',
+    action: 'Proceed normally; borrow context only if the peer intent helps your task.',
+    overlapPaths: [],
+    sharedModules: [],
+  };
+}
+
+function findDirectOverlap({
+  targetFilePaths = [],
+  recordPaths = [],
+} = {}) {
+  const targets = new Set(uniqueValues((targetFilePaths || []).map(normalizeText).filter(Boolean)));
+  return uniqueValues((recordPaths || []).map(normalizeText).filter(Boolean))
+    .filter((filePath) => targets.has(filePath));
+}
+
+function findSharedModules({
+  targetFilePaths = [],
+  ownedModules = [],
+} = {}) {
+  const targetModules = inferOwnedModules(targetFilePaths);
+  const normalizedOwnedModules = uniqueValues((ownedModules || []).map(normalizeOwnedModulePath).filter(Boolean));
+  return normalizedOwnedModules.filter((moduleName) => targetModules.includes(moduleName));
 }
 
 function scorePathRelevance({
@@ -1738,8 +2074,11 @@ module.exports = {
   TEST_PORT_START,
   buildCoordinationSummary,
   buildCoordinationSummarySignature,
+  buildIntentCard,
+  classifyThreadRelationship,
   claimTestingPort,
   loadThreadSummary,
   maybeUpdateStableThreadSummary,
+  normalizeIntentCard,
   recordCodeWriteActivity,
 };

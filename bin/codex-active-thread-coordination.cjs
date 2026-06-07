@@ -92,8 +92,8 @@ Usage:
   codex-active-thread-coordination record --session-id <id> --file <path> [--prompt <text>]
 
 Commands:
-  summary   Render active peer-thread coordination hints for target paths.
-  record    Record a successful code write into the local sidecar summary.
+  summary   Render active peer-thread collaboration hints for target paths.
+  record    Record a successful code write and intent card into local sidecar state.
 
 Options:
   --project-root <path>  Repository root. Defaults to cwd.
